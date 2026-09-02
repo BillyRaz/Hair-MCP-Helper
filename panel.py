@@ -32,7 +32,7 @@ class HAIRMCP_PT_main(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Machine API")
-        box.label(text="import hair_mcp_helper as hmh")
+        box.label(text="mcp_exec.py provides: hmh")
         box.label(text="hmh.execute({...})")
 
 

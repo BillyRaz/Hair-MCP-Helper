@@ -1,4 +1,4 @@
-# Hair MCP Helper 0.1
+# Hair MCP Helper 0.2
 
 A thin Blender semantic bridge for **Codex / MCP / CLI-assisted hair grooming**.
 
@@ -53,14 +53,18 @@ Blender 4.2+:
 
 ## MCP / Codex API
 
-From a Blender Python execution endpoint:
+`mcp_exec.py` injects a resolved `hmh` module into every submitted script, so
+callers do not need to know whether Blender installed the extension as
+`hair_mcp_helper` or under a `bl_ext.*` namespace:
 
 ```python
-import hair_mcp_helper as hmh
-
 result = hmh.execute({"action": "init"})
 print(result)
 ```
+
+For other Blender execution endpoints, load `resolver.py` and call
+`resolve_hair_mcp_helper()`. Resolution uses the stable extension id and add-on
+name rather than a hard-coded repository namespace.
 
 Set a scalp:
 
@@ -123,6 +127,22 @@ Snapshot machine state:
 state = hmh.snapshot()
 ```
 
+## Phase 1 query and guide operations
+
+Scalp queries are read-only and use world coordinates by default:
+
+```python
+hmh.execute({"action": "nearest_scalp_point", "args": {"point": [0, 0, 1.7]}})
+hmh.execute({"action": "nearest_scalp_normal", "args": {"point": [0, 0, 1.7]}})
+hmh.execute({"action": "root_to_scalp_distance", "args": {"object_name": "HR_GUIDE_TEST_000"}})
+```
+
+Editable legacy `CURVE` guides support `read_guide_points`,
+`set_guide_points`, `snap_guide_root`, `snap_guide_roots`, `resample_guide`,
+`smooth_guide`, `duplicate_guide`, and `delete_guide`. These operations retain
+the guide's role, region, group id, coordinate space, and primary-guide flag.
+See `command_schema.json` and `example_commands.json` for argument shapes.
+
 ## Human → machine translation
 
 A style document can say:
@@ -161,7 +181,9 @@ These live as Blender Text datablocks so MCP/Codex can inspect them without depe
 - unapplied scalp scale warning
 - guide object types
 - minimal guide point count
-- approximate guide-root distance to scalp
+- floating roots and excessive root distance
+- invalid, zero-length, and duplicate-point guide geometry
+- duplicate semantic names
 - semantic region counts
 - late-checkpoint-without-guides error
 

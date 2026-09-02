@@ -8,7 +8,7 @@ structured commands, checkpoints, metadata and validation.
 bl_info = {
     "name": "Hair MCP Helper",
     "author": "Bilal Raza + OpenAI Codex workflow",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Hair MCP",
     "description": "Semantic bridge for Codex/MCP hair-groom workflows",

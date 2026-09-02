@@ -7,19 +7,144 @@
     "action": {
       "type": "string",
       "enum": [
-        "init",
-        "set_scalp",
-        "ensure_region",
-        "create_guides",
-        "tag_selected",
-        "checkpoint",
-        "validate",
-        "snapshot",
-        "write_state",
-        "save_state"
+        "init", "set_scalp", "nearest_scalp_point", "nearest_scalp_normal",
+        "root_to_scalp_distance", "ensure_region", "create_guides",
+        "read_guide_points", "set_guide_points", "snap_guide_root",
+        "snap_guide_roots", "resample_guide", "smooth_guide",
+        "duplicate_guide", "delete_guide", "tag_selected", "checkpoint",
+        "validate", "snapshot", "write_state", "save_state"
       ]
     },
     "args": {"type": "object"}
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "point": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "points": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/point"}},
+    "space": {"type": "string", "enum": ["WORLD", "LOCAL"]},
+    "name": {"type": "string", "minLength": 1},
+    "empty": {"type": "object", "maxProperties": 0},
+    "guideName": {
+      "type": "object", "required": ["object_name"],
+      "properties": {"object_name": {"$ref": "#/$defs/name"}},
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"action": {"enum": ["init", "write_state"]}}},
+      "then": {"properties": {"args": {"$ref": "#/$defs/empty"}}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "set_scalp"}}},
+      "then": {"properties": {"args": {"type": "object", "properties": {"object_name": {"$ref": "#/$defs/name"}}, "additionalProperties": false}}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["nearest_scalp_point", "nearest_scalp_normal"]}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["point"],
+        "properties": {"point": {"$ref": "#/$defs/point"}, "coordinate_space": {"$ref": "#/$defs/space"}, "object_name": {"$ref": "#/$defs/name"}},
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["root_to_scalp_distance", "snap_guide_root", "delete_guide"]}}},
+      "then": {"required": ["args"], "properties": {"args": {"$ref": "#/$defs/guideName"}}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "read_guide_points"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "coordinate_space": {"$ref": "#/$defs/space"}},
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "set_guide_points"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name", "points"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "points": {"$ref": "#/$defs/points"}, "coordinate_space": {"$ref": "#/$defs/space"}},
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "snap_guide_roots"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object",
+        "properties": {"object_names": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/name"}}, "region": {"$ref": "#/$defs/name"}, "selected": {"type": "boolean"}},
+        "anyOf": [{"required": ["object_names"]}, {"required": ["region"]}, {"required": ["selected"], "properties": {"selected": {"const": true}}}],
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "resample_guide"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name", "count"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "count": {"type": "integer", "minimum": 2}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "smooth_guide"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "iterations": {"type": "integer", "minimum": 1}, "factor": {"type": "number", "minimum": 0, "maximum": 1}, "keep_root": {"type": "boolean"}, "keep_tip": {"type": "boolean"}},
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "duplicate_guide"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "new_name": {"$ref": "#/$defs/name"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "ensure_region"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["name"],
+        "properties": {"name": {"$ref": "#/$defs/name"}, "side": {"type": "string"}, "role": {"type": "string"}, "group_id": {"type": "integer"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "create_guides"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["region", "guides"],
+        "properties": {"region": {"$ref": "#/$defs/name"}, "guides": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/points"}}, "name_prefix": {"type": "string"}, "group_id": {"type": "integer"}, "coordinate_space": {"$ref": "#/$defs/space"}},
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "tag_selected"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["role"],
+        "properties": {"role": {"type": "string"}, "region": {"type": "string"}, "group_id": {"type": "integer"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "checkpoint"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["name"],
+        "properties": {"name": {"$ref": "#/$defs/name"}, "note": {"type": "string"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "validate"}}},
+      "then": {"properties": {"args": {
+        "type": "object", "properties": {"root_tolerance": {"type": "number", "minimum": 0}, "excessive_root_distance": {"type": "number", "minimum": 0}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "snapshot"}}},
+      "then": {"properties": {"args": {"type": "object", "properties": {"include_validation": {"type": "boolean"}}, "additionalProperties": false}}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "save_state"}}},
+      "then": {"required": ["args"], "properties": {"args": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}, "additionalProperties": false}}}
+    }
+  ]
 }

@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "hair_mcp_helper"
-version = "0.1.0"
+version = "0.2.0"
 name = "Hair MCP Helper"
 tagline = "Semantic hair-groom bridge for Codex, MCP, and Blender"
 maintainer = "Bilal Raza + OpenAI Codex workflow"

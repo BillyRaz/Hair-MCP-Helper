@@ -1,19 +1,19 @@
 [
   {"action": "init"},
   {"action": "set_scalp", "args": {"object_name": "Head_Scalp"}},
-  {"action": "ensure_region", "args": {"name": "FRINGE_L", "side": "LEFT", "group_id": 10}},
-  {
-    "action": "create_guides",
-    "args": {
-      "region": "FRINGE_L",
-      "group_id": 10,
-      "guides": [
-        [[0.00, 0.00, 1.70], [-0.03, -0.02, 1.66], [-0.08, -0.04, 1.58]],
-        [[0.02, 0.00, 1.70], [-0.01, -0.03, 1.64], [-0.06, -0.05, 1.55]]
-      ]
-    }
-  },
-  {"action": "checkpoint", "args": {"name": "B_PRIMARY_GUIDES", "note": "Primary fringe guides ready for human silhouette review."}},
-  {"action": "validate"},
-  {"action": "snapshot"}
+  {"action": "nearest_scalp_point", "args": {"point": [0.0, 0.0, 1.7], "coordinate_space": "WORLD"}},
+  {"action": "nearest_scalp_normal", "args": {"point": [0.0, 0.0, 1.7], "coordinate_space": "WORLD"}},
+  {"action": "ensure_region", "args": {"name": "TEST_REGION", "side": "CENTER", "group_id": 900}},
+  {"action": "create_guides", "args": {"region": "TEST_REGION", "group_id": 900, "guides": [[[0.0, 0.0, 1.7], [0.0, 0.0, 1.8], [0.0, 0.0, 1.9]]]}},
+  {"action": "read_guide_points", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "coordinate_space": "WORLD"}},
+  {"action": "set_guide_points", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "points": [[0.0, 0.0, 1.7], [0.01, 0.0, 1.8], [0.0, 0.0, 1.9]], "coordinate_space": "WORLD"}},
+  {"action": "root_to_scalp_distance", "args": {"object_name": "HR_GUIDE_TEST_REGION_000"}},
+  {"action": "snap_guide_root", "args": {"object_name": "HR_GUIDE_TEST_REGION_000"}},
+  {"action": "snap_guide_roots", "args": {"region": "TEST_REGION"}},
+  {"action": "resample_guide", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "count": 5}},
+  {"action": "smooth_guide", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "iterations": 2, "factor": 0.5, "keep_root": true, "keep_tip": true}},
+  {"action": "duplicate_guide", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "new_name": "HR_GUIDE_TEST_REGION_COPY"}},
+  {"action": "delete_guide", "args": {"object_name": "HR_GUIDE_TEST_REGION_COPY"}},
+  {"action": "validate", "args": {"root_tolerance": 0.01, "excessive_root_distance": 0.05}},
+  {"action": "snapshot", "args": {"include_validation": true}}
 ]
