@@ -1,0 +1,19 @@
+[
+  {"action": "init"},
+  {"action": "set_scalp", "args": {"object_name": "Head_Scalp"}},
+  {"action": "ensure_region", "args": {"name": "FRINGE_L", "side": "LEFT", "group_id": 10}},
+  {
+    "action": "create_guides",
+    "args": {
+      "region": "FRINGE_L",
+      "group_id": 10,
+      "guides": [
+        [[0.00, 0.00, 1.70], [-0.03, -0.02, 1.66], [-0.08, -0.04, 1.58]],
+        [[0.02, 0.00, 1.70], [-0.01, -0.03, 1.64], [-0.06, -0.05, 1.55]]
+      ]
+    }
+  },
+  {"action": "checkpoint", "args": {"name": "B_PRIMARY_GUIDES", "note": "Primary fringe guides ready for human silhouette review."}},
+  {"action": "validate"},
+  {"action": "snapshot"}
+]

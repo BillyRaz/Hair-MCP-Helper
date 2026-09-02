@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hair MCP Helper Command",
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "init",
+        "set_scalp",
+        "ensure_region",
+        "create_guides",
+        "tag_selected",
+        "checkpoint",
+        "validate",
+        "snapshot",
+        "write_state",
+        "save_state"
+      ]
+    },
+    "args": {"type": "object"}
+  },
+  "additionalProperties": false
+}

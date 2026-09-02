@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+id = "hair_mcp_helper"
+version = "0.1.0"
+name = "Hair MCP Helper"
+tagline = "Semantic hair-groom bridge for Codex, MCP, and Blender"
+maintainer = "Bilal Raza + OpenAI Codex workflow"
+type = "add-on"
+website = "https://github.com/BillyRaz/Hair-MCP-Helper"
+tags = ["Modeling", "Pipeline"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
