@@ -15,5 +15,21 @@
   {"action": "duplicate_guide", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "new_name": "HR_GUIDE_TEST_REGION_COPY"}},
   {"action": "delete_guide", "args": {"object_name": "HR_GUIDE_TEST_REGION_COPY"}},
   {"action": "validate", "args": {"root_tolerance": 0.01, "excessive_root_distance": 0.05}},
-  {"action": "snapshot", "args": {"include_validation": true}}
+  {"action": "snapshot", "args": {"include_validation": true}},
+  {"action": "convert_guide_to_native", "args": {"object_name": "HR_GUIDE_TEST_REGION_000", "new_name": "HR_NATIVE_TEST_GUIDE", "keep_source": true}},
+  {"action": "convert_region_to_native", "args": {"region": "TEST_REGION", "new_name": "HR_NATIVE_TEST_REGION", "keep_source": true}},
+  {"action": "configure_guide_group", "args": {"object_name": "HR_NATIVE_TEST_REGION", "group_id": 900, "prevent_cross_region": true}},
+  {"action": "attach_native_to_scalp", "args": {"object_name": "HR_NATIVE_TEST_REGION", "require_uv": true}},
+  {"action": "native_attachment_state", "args": {"object_name": "HR_NATIVE_TEST_REGION", "tolerance": 0.00001}},
+  {"action": "create_part_boundary", "args": {"name": "HR_PART_TEST", "points": [[-0.1, 0.0, 1.7], [0.0, 0.0, 1.8], [0.1, 0.0, 1.7]], "left_region": "TEST_LEFT", "right_region": "TEST_RIGHT", "left_group_id": 901, "right_group_id": 902, "side": "CENTER"}},
+  {"action": "configure_interpolation", "args": {"object_name": "HR_NATIVE_TEST_REGION", "generated_name": "HR_GENERATED_TEST_REGION", "density": 2.0, "viewport_amount": 0.05, "interpolation_guides": 2, "seed": 0}},
+  {"action": "add_clump", "args": {"object_name": "HR_GENERATED_TEST_REGION", "factor": 0.25, "shape": 0.5, "preserve_length": true, "region": "TEST_REGION", "group_id": 900}},
+  {"action": "add_curl", "args": {"object_name": "HR_GENERATED_TEST_REGION", "factor": 0.2, "radius": 0.02, "frequency": 1.0, "curl_start": 0.1}},
+  {"action": "add_straighten", "args": {"object_name": "HR_GENERATED_TEST_REGION", "amount": 0.2, "preserve_length": true}},
+  {"action": "add_frizz", "args": {"object_name": "HR_GENERATED_TEST_REGION", "factor": 0.1, "distance": 0.005, "seed": 0, "preserve_length": true}},
+  {"action": "add_native_smooth", "args": {"object_name": "HR_GENERATED_TEST_REGION", "amount": 0.2, "iterations": 2, "weight": 0.5, "preserve_length": true}},
+  {"action": "add_blend", "args": {"object_name": "HR_GENERATED_TEST_REGION", "factor": 0.2, "blend_radius": 0.05, "blend_neighbors": 4, "preserve_length": true}},
+  {"action": "delete_part_boundary", "args": {"object_name": "HR_PART_TEST"}},
+  {"action": "delete_native_hair", "args": {"object_name": "HR_GENERATED_TEST_REGION"}},
+  {"action": "delete_native_hair", "args": {"object_name": "HR_NATIVE_TEST_REGION"}}
 ]

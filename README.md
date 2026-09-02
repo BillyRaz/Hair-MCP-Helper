@@ -1,4 +1,4 @@
-# Hair MCP Helper 0.2
+# Hair MCP Helper 0.3
 
 A thin Blender semantic bridge for **Codex / MCP / CLI-assisted hair grooming**.
 
@@ -174,7 +174,7 @@ These live as Blender Text datablocks so MCP/Codex can inspect them without depe
 
 ## Current validation
 
-0.1 checks:
+0.3 checks:
 
 - scalp exists and is a mesh
 - scalp UV availability
@@ -187,14 +187,46 @@ These live as Blender Text datablocks so MCP/Codex can inspect them without depe
 - semantic region counts
 - late-checkpoint-without-guides error
 
-## Deliberate omissions in 0.1
+## Native Hair Curves workflow
+
+Legacy `CURVE` guides remain the stable semantic authoring source. Native
+Blender Hair Curves are explicit derived objects:
+
+```python
+hmh.execute({"action": "convert_guide_to_native", "args": {
+    "object_name": "HR_GUIDE_TEST_REGION_000",
+    "keep_source": True
+}})
+hmh.execute({"action": "attach_native_to_scalp", "args": {
+    "object_name": "HR_GUIDE_TEST_REGION_000_NATIVE",
+    "require_uv": True
+}})
+hmh.execute({"action": "configure_interpolation", "args": {
+    "object_name": "HR_GUIDE_TEST_REGION_000_NATIVE",
+    "generated_name": "HR_GENERATED_TEST_REGION",
+    "density": 2.0,
+    "viewport_amount": 0.05
+}})
+```
+
+Interpolation creates a separate `GENERATED_HAIR` Curves object; the input
+object remains a `NATIVE_GUIDE`. Region conversion, guide grouping, generic part boundaries, and Blender's
+bundled clump/curl/straighten/frizz/smooth/blend node assets are exposed as
+separate actions. Interpolation is low-density by default and rebuildable.
+No action automatically creates a final production groom.
+
+Snapshots distinguish `NATIVE_GUIDE` from `GENERATED_HAIR` and report original
+and evaluated curve/point counts, root attachment, ownership, guide-index
+attributes, interpolation settings, and deformation stages.
+Validation additionally detects unattached native roots, invalid required UVs,
+missing ownership, part/group conflicts, missing interpolation guides, and
+lost source guides when preservation was requested. Generated objects with an
+empty evaluated result report `INTERPOLATION_EMPTY_OUTPUT`.
+
+## Deliberate omissions
 
 Not implemented yet:
 
-- Geometry Nodes hair interpolation
-- automatic root snapping
-- part-boundary curve generation
-- clumping/curl/frizz graph construction
 - collision correction
 - direct Alembic groom attribute authoring
 - Unreal export

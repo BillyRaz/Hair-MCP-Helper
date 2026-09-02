@@ -12,7 +12,12 @@
         "read_guide_points", "set_guide_points", "snap_guide_root",
         "snap_guide_roots", "resample_guide", "smooth_guide",
         "duplicate_guide", "delete_guide", "tag_selected", "checkpoint",
-        "validate", "snapshot", "write_state", "save_state"
+        "validate", "snapshot", "write_state", "save_state",
+        "convert_guide_to_native", "convert_region_to_native", "delete_native_hair",
+        "configure_guide_group", "attach_native_to_scalp", "native_attachment_state",
+        "create_part_boundary", "delete_part_boundary", "configure_interpolation",
+        "add_clump", "add_curl", "add_straighten", "add_frizz",
+        "add_native_smooth", "add_blend"
       ]
     },
     "args": {"type": "object"}
@@ -145,6 +150,68 @@
     {
       "if": {"properties": {"action": {"const": "save_state"}}},
       "then": {"required": ["args"], "properties": {"args": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}, "additionalProperties": false}}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["convert_guide_to_native", "convert_region_to_native"]}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object",
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "region": {"$ref": "#/$defs/name"}, "new_name": {"$ref": "#/$defs/name"}, "keep_source": {"type": "boolean"}, "rebuild": {"type": "boolean"}},
+        "oneOf": [{"required": ["object_name"]}, {"required": ["region"]}],
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["delete_native_hair", "delete_part_boundary"]}}},
+      "then": {"required": ["args"], "properties": {"args": {"$ref": "#/$defs/guideName"}}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "configure_guide_group"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "group_id": {"type": "integer"}, "prevent_cross_region": {"type": "boolean"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "attach_native_to_scalp"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "uv_map": {"type": "string"}, "require_uv": {"type": "boolean"}, "add_modifier": {"type": "boolean"}, "rebuild": {"type": "boolean"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "native_attachment_state"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "tolerance": {"type": "number", "minimum": 0}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "create_part_boundary"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["name", "points", "left_region", "right_region"],
+        "properties": {"name": {"$ref": "#/$defs/name"}, "points": {"$ref": "#/$defs/points"}, "left_region": {"$ref": "#/$defs/name"}, "right_region": {"$ref": "#/$defs/name"}, "left_group_id": {"type": "integer"}, "right_group_id": {"type": "integer"}, "side": {"type": "string", "enum": ["LEFT", "RIGHT", "CENTER"]}, "coordinate_space": {"$ref": "#/$defs/space"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "configure_interpolation"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "generated_name": {"$ref": "#/$defs/name"}, "density": {"type": "number", "exclusiveMinimum": 0}, "viewport_amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "interpolation_guides": {"type": "integer", "minimum": 1}, "seed": {"type": "integer"}, "part_by_mesh_islands": {"type": "boolean"}, "rebuild": {"type": "boolean"}}, "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["add_clump", "add_curl", "add_straighten", "add_frizz", "add_native_smooth", "add_blend"]}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {
+          "object_name": {"$ref": "#/$defs/name"}, "region": {"type": "string"}, "group_id": {"type": "integer"}, "rebuild": {"type": "boolean"},
+          "factor": {"type": "number"}, "shape": {"type": "number"}, "tip_spread": {"type": "number"}, "preserve_length": {"type": "boolean"},
+          "radius": {"type": "number", "minimum": 0}, "frequency": {"type": "number"}, "curl_start": {"type": "number"}, "seed": {"type": "integer"},
+          "amount": {"type": "number"}, "distance": {"type": "number", "minimum": 0}, "iterations": {"type": "integer", "minimum": 1},
+          "weight": {"type": "number"}, "lock_tips": {"type": "boolean"}, "blend_radius": {"type": "number", "minimum": 0}, "blend_neighbors": {"type": "integer", "minimum": 1}
+        },
+        "additionalProperties": false
+      }}}
     }
   ]
 }
