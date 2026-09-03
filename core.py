@@ -571,35 +571,101 @@ def _remove_existing_derived(name, rebuild):
 def _create_native_from_sources(sources, name, keep_source=True, rebuild=True):
     if not sources:
         raise ValueError("At least one legacy guide source is required.")
-    if any(obj.type != "CURVE" or obj.get("hair_mcp_role") != "GUIDE" for obj in sources):
-        raise TypeError("Native conversion sources must be semantic legacy CURVE guides.")
+
+    if any(
+        obj.type != "CURVE" or obj.get("hair_mcp_role") != "GUIDE"
+        for obj in sources
+    ):
+        raise TypeError(
+            "Native conversion sources must be semantic legacy CURVE guides."
+        )
+
     regions = {obj.get("hair_mcp_region") for obj in sources}
-    groups = {obj.get("hair_mcp_group_id") for obj in sources}
+
     if None in regions or len(regions) != 1:
-        raise ValueError("Native conversion sources must share one semantic region.")
-    if None in groups or len(groups) != 1:
-        raise ValueError("Native conversion sources must share one group_id.")
+        raise ValueError(
+            "Native conversion sources must share one semantic region."
+        )
+
+    source_group_ids = []
+
+    for source in sources:
+        value = source.get("hair_mcp_group_id")
+
+        if value is None:
+            raise ValueError(
+                f"Native conversion source '{source.name}' has no group_id."
+            )
+
+        source_group_ids.append(int(value))
+
     region = regions.pop()
-    group_id = int(groups.pop())
+
     _remove_existing_derived(name, rebuild)
-    native = compat.create_native_curves(name, [_guide_points(source, "WORLD") for source in sources])
+
+    native = compat.create_native_curves(
+        name,
+        [_guide_points(source, "WORLD") for source in sources],
+    )
+
     _link_native_object(native, region)
-    _tag(native, role="GUIDE", region=region, group_id=group_id)
+
+    # Keep an object-level group for the legacy/single-group case only.
+    unique_group_ids = sorted(set(source_group_ids))
+    object_group_id = (
+        unique_group_ids[0]
+        if len(unique_group_ids) == 1
+        else None
+    )
+
+    _tag(
+        native,
+        role="GUIDE",
+        region=region,
+        group_id=object_group_id,
+    )
+
     native["hair_mcp_coordinate_space"] = "WORLD"
-    native["hair_mcp_primary_guide"] = all(bool(obj.get("hair_mcp_primary_guide")) for obj in sources)
+    native["hair_mcp_primary_guide"] = all(
+        bool(obj.get("hair_mcp_primary_guide"))
+        for obj in sources
+    )
     native["hair_mcp_semantic_name"] = name
     native["hair_mcp_native"] = True
     native["hair_mcp_native_kind"] = "NATIVE_GUIDE"
     native["hair_mcp_derived"] = True
-    native["hair_mcp_source_guides"] = json.dumps([obj.name for obj in sources])
+    native["hair_mcp_source_guides"] = json.dumps(
+        [obj.name for obj in sources]
+    )
     native["hair_mcp_source_preserved"] = bool(keep_source)
     native["hair_mcp_requested_source_preservation"] = bool(keep_source)
-    configure_guide_group(native.name, group_id=group_id, prevent_cross_region=True)
+
+    # Per-curve ownership is authoritative for multi-guide native objects.
+    compat.set_curve_int_attribute(
+        native.data,
+        "hair_mcp_group_id",
+        source_group_ids,
+    )
+
+    configure_guide_group(
+        native.name,
+        prevent_cross_region=True,
+        preserve_existing=True,
+    )
+
     source_names = [obj.name for obj in sources]
+
     if not keep_source:
         for source in list(sources):
             delete_guide(source.name)
-    _log(f"CONVERT_NATIVE object={native.name} sources={','.join(source_names)} keep_source={keep_source}")
+
+    _log(
+        f"CONVERT_NATIVE object={native.name} "
+        f"sources={','.join(source_names)} "
+        f"groups={source_group_ids} "
+        f"keep_source={keep_source}"
+    )
+
     return {
         "ok": True,
         "object": native.name,
@@ -607,7 +673,8 @@ def _create_native_from_sources(sources, name, keep_source=True, rebuild=True):
         "source_preserved": bool(keep_source),
         "curve_count": len(native.data.curves),
         "region": region,
-        "group_id": group_id,
+        "group_id": object_group_id,
+        "group_ids": source_group_ids,
     }
 
 
@@ -631,24 +698,93 @@ def delete_native_hair(object_name):
     return {"ok": True, "deleted": name}
 
 
-def configure_guide_group(object_name, group_id=None, prevent_cross_region=True):
+def configure_guide_group(object_name, group_id=None, prevent_cross_region=True, preserve_existing=True):
     obj = _native_object(object_name)
     region = obj.get("hair_mcp_region")
-    group_id = obj.get("hair_mcp_group_id") if group_id is None else int(group_id)
-    if not region or group_id is None:
-        raise ValueError("Native guide grouping requires region and group_id metadata.")
+
+    if not region:
+        raise ValueError("Native guide grouping requires region metadata.")
+
     count = len(obj.data.curves)
-    compat.set_curve_int_attribute(obj.data, "hair_mcp_group_id", [group_id] * count)
-    compat.set_curve_int_attribute(obj.data, "guide_curve_index", list(range(count)))
-    obj["hair_mcp_group_id"] = int(group_id)
+    if count <= 0:
+        raise ValueError("Native guide grouping requires at least one curve.")
+
+    existing_group_ids = None
+
+    # An explicit group_id always means "assign this group to every curve".
+    # Existing per-curve ownership is preserved only when no explicit
+    # override was requested.
+    if group_id is not None:
+        group_ids = [int(group_id)] * count
+
+    else:
+        if preserve_existing:
+            try:
+                attr = obj.data.attributes.get("hair_mcp_group_id")
+                if attr is not None and attr.domain == 'CURVE' and len(attr.data) == count:
+                    existing_group_ids = [int(item.value) for item in attr.data]
+            except Exception:
+                existing_group_ids = None
+
+        if existing_group_ids is not None:
+            group_ids = existing_group_ids
+
+        else:
+            resolved_group_id = obj.get("hair_mcp_group_id")
+
+            if resolved_group_id is None:
+                raise ValueError(
+                    "Native guide grouping requires either existing per-curve "
+                    "group IDs or an object/group_id fallback."
+                )
+
+            group_ids = [int(resolved_group_id)] * count
+
+    compat.set_curve_int_attribute(
+        obj.data,
+        "hair_mcp_group_id",
+        group_ids,
+    )
+
+    guide_curve_index = list(range(count))
+
+    compat.set_curve_int_attribute(
+        obj.data,
+        "guide_curve_index",
+        guide_curve_index,
+    )
+
+    unique_group_ids = sorted(set(group_ids))
+
+    # Object-level group_id remains useful for the legacy/single-group case.
+    # Mixed native guide objects intentionally have no single ownership group.
+    if len(unique_group_ids) == 1:
+        obj["hair_mcp_group_id"] = unique_group_ids[0]
+    elif "hair_mcp_group_id" in obj:
+        del obj["hair_mcp_group_id"]
+
     obj["hair_mcp_prevent_cross_region"] = bool(prevent_cross_region)
+
     obj["hair_mcp_guide_map"] = json.dumps({
         "region": region,
-        "group_id": int(group_id),
-        "guide_curve_index": list(range(count)),
+        "group_ids": group_ids,
+        "guide_curve_index": guide_curve_index,
     })
-    _log(f"GUIDE_GROUP object={obj.name} region={region} group_id={group_id} count={count}")
-    return {"ok": True, "object": obj.name, "region": region, "group_id": int(group_id), "guide_curve_index": list(range(count)), "prevent_cross_region": bool(prevent_cross_region)}
+
+    _log(
+        f"GUIDE_GROUP object={obj.name} region={region} "
+        f"groups={group_ids} count={count}"
+    )
+
+    return {
+        "ok": True,
+        "object": obj.name,
+        "region": region,
+        "group_id": unique_group_ids[0] if len(unique_group_ids) == 1 else None,
+        "group_ids": group_ids,
+        "guide_curve_index": guide_curve_index,
+        "prevent_cross_region": bool(prevent_cross_region),
+    }
 
 
 def attach_native_to_scalp(object_name, uv_map=None, require_uv=True, add_modifier=True, rebuild=True):
@@ -785,8 +921,23 @@ def configure_interpolation(object_name, generated_name=None, density=10.0, view
         raise ValueError("density must be positive and viewport_amount must be in (0, 1].")
     if guide.get("hair_mcp_native_kind", "NATIVE_GUIDE") != "NATIVE_GUIDE":
         raise ValueError("Interpolation source must be a NATIVE_GUIDE object.")
-    if not guide.get("hair_mcp_region") or guide.get("hair_mcp_group_id") is None:
-        raise ValueError("Interpolation requires region and group_id metadata.")
+    if not guide.get("hair_mcp_region"):
+        raise ValueError("Interpolation requires region metadata.")
+
+    object_group_id = guide.get("hair_mcp_group_id")
+    curve_group_attr = guide.data.attributes.get("hair_mcp_group_id")
+
+    has_curve_groups = (
+        curve_group_attr is not None
+        and curve_group_attr.domain == 'CURVE'
+        and len(curve_group_attr.data) == len(guide.data.curves)
+    )
+
+    if object_group_id is None and not has_curve_groups:
+        raise ValueError(
+            "Interpolation requires either an object-level group_id "
+            "or valid per-curve hair_mcp_group_id ownership."
+        )
     if len(guide.data.curves) == 0:
         raise ValueError("Interpolation requires at least one native guide curve.")
     attachment = native_attachment_state(guide.name)
