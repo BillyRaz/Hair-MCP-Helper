@@ -16,8 +16,9 @@
         "convert_guide_to_native", "convert_region_to_native", "delete_native_hair",
         "configure_guide_group", "attach_native_to_scalp", "native_attachment_state",
         "create_part_boundary", "delete_part_boundary", "configure_interpolation",
-        "add_clump", "add_curl", "add_straighten", "add_frizz",
-        "add_native_smooth", "add_blend"
+        "add_clump", "configure_resample_flow", "configure_flow", "add_curl", "add_straighten", "add_frizz",
+        "add_native_smooth", "add_blend",
+        "style_capabilities", "style_plan", "style_apply"
       ]
     },
     "args": {"type": "object"}
@@ -196,16 +197,35 @@
       "if": {"properties": {"action": {"const": "configure_interpolation"}}},
       "then": {"required": ["args"], "properties": {"args": {
         "type": "object", "required": ["object_name"],
-        "properties": {"object_name": {"$ref": "#/$defs/name"}, "generated_name": {"$ref": "#/$defs/name"}, "density": {"type": "number", "exclusiveMinimum": 0}, "viewport_amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "interpolation_guides": {"type": "integer", "minimum": 1}, "distance_to_guides": {"type": "number", "exclusiveMinimum": 0}, "seed": {"type": "integer"}, "part_by_mesh_islands": {"type": "boolean"}, "rebuild": {"type": "boolean"}}, "additionalProperties": false
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "generated_name": {"$ref": "#/$defs/name"}, "density": {"type": "number", "exclusiveMinimum": 0}, "viewport_amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "interpolation_guides": {"type": "integer", "minimum": 1}, "distance_to_guides": {"type": "number", "exclusiveMinimum": 0}, "seed": {"type": "integer"}, "part_by_mesh_islands": {"type": "boolean"}, "follow_surface_normal": {"type": "boolean"}, "rebuild": {"type": "boolean"}}, "additionalProperties": false
       }}}
     },
     {
-      "if": {"properties": {"action": {"enum": ["add_clump", "add_curl", "add_straighten", "add_frizz", "add_native_smooth", "add_blend"]}}},
+      "if": {"properties": {"action": {"const": "style_capabilities"}}},
+      "then": {"properties": {"args": {"$ref": "#/$defs/empty"}}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["style_plan", "style_apply"]}}},
+      "then": {"properties": {"args": {
+        "type": "object",
+        "properties": {
+          "profile": {"oneOf": [{"$ref": "#/$defs/name"}, {"type": "object"}]},
+          "regions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/name"}},
+          "rebuild": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"enum": ["add_clump", "configure_resample_flow", "configure_flow", "add_curl", "add_straighten", "add_frizz", "add_native_smooth", "add_blend"]}}},
       "then": {"required": ["args"], "properties": {"args": {
         "type": "object", "required": ["object_name"],
         "properties": {
           "object_name": {"$ref": "#/$defs/name"}, "region": {"type": "string"}, "group_id": {"type": "integer"}, "rebuild": {"type": "boolean"},
+          "points_per_meter": {"type": "number", "exclusiveMinimum": 0},
           "factor": {"type": "number"}, "shape": {"type": "number"}, "tip_spread": {"type": "number"}, "preserve_length": {"type": "boolean"},
+          "root": {"type": "number", "minimum": 0, "maximum": 1}, "upper": {"type": "number", "minimum": 0, "maximum": 1}, "mid": {"type": "number", "minimum": 0, "maximum": 1}, "lower": {"type": "number", "minimum": 0, "maximum": 1}, "tip": {"type": "number", "minimum": 0, "maximum": 1},
+          "wavelength": {"type": "number", "exclusiveMinimum": 0}, "phase": {"type": "number"}, "variation": {"type": "number", "minimum": 0}, "asymmetry": {"type": "number"}, "tip_release": {"type": "number", "minimum": 0, "maximum": 1},
           "radius": {"type": "number", "minimum": 0}, "frequency": {"type": "number"}, "curl_start": {"type": "number"}, "seed": {"type": "integer"},
           "amount": {"type": "number"}, "distance": {"type": "number", "minimum": 0}, "iterations": {"type": "integer", "minimum": 1},
           "weight": {"type": "number"}, "lock_tips": {"type": "boolean"}, "blend_radius": {"type": "number", "minimum": 0}, "blend_neighbors": {"type": "integer", "minimum": 1}

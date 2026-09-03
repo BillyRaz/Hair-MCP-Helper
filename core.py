@@ -894,7 +894,7 @@ def _record_stage(obj, stage, modifier, settings):
 
 
 def _remove_generated_stages_from_guide(obj):
-    generated_stages = {"INTERPOLATE", "CLUMP", "CURL", "STRAIGHTEN", "FRIZZ", "SMOOTH", "BLEND"}
+    generated_stages = {"INTERPOLATE", "CLUMP", "RESAMPLE_FLOW", "FLOW", "CURL", "STRAIGHTEN", "FRIZZ", "SMOOTH", "BLEND"}
     records = _stage_records(obj)
     for record in records:
         if record.get("stage") in generated_stages:
@@ -913,8 +913,10 @@ def _remove_generated_stages_from_guide(obj):
             del obj[key]
 
 
-def configure_interpolation(object_name, generated_name=None, density=10.0, viewport_amount=0.1, interpolation_guides=4, distance_to_guides=0.10, seed=0, part_by_mesh_islands=False, rebuild=True):
+def configure_interpolation(object_name, generated_name=None, density=10.0, viewport_amount=0.1, interpolation_guides=4, distance_to_guides=0.10, seed=0, part_by_mesh_islands=False, follow_surface_normal=False, rebuild=True):
     guide = _native_object(object_name)
+    if not isinstance(follow_surface_normal, bool):
+        raise TypeError("follow_surface_normal must be a boolean.")
     density = float(density)
     viewport_amount = float(viewport_amount)
     if density <= 0.0 or not 0.0 < viewport_amount <= 1.0:
@@ -970,6 +972,7 @@ def configure_interpolation(object_name, generated_name=None, density=10.0, view
     obj["hair_mcp_attachment_requires_uv"] = guide.get("hair_mcp_attachment_requires_uv", False)
     settings = {
         "Resting Surface": True,
+        "Follow Surface Normal": bool(follow_surface_normal),
         "Part by Mesh Islands": bool(part_by_mesh_islands),
         "Interpolation Guides": int(interpolation_guides),
         "Distance to Guides": float(distance_to_guides),
@@ -987,7 +990,7 @@ def configure_interpolation(object_name, generated_name=None, density=10.0, view
     bpy.context.view_layer.update()
     counts = compat.curve_counts(obj, evaluated=True)
     _log(f"INTERPOLATE guide={guide.name} generated={obj.name} density={density} viewport={viewport_amount}")
-    return {"ok": True, "object": obj.name, "guide_object": guide.name, "modifier": modifier.name, "density": density, "viewport_amount": viewport_amount, "guide_count": len(guide.data.curves), "evaluated_curve_count": counts["curves"], "evaluated_point_count": counts["points"], "rebuildable": True}
+    return {"ok": True, "object": obj.name, "guide_object": guide.name, "modifier": modifier.name, "density": density, "viewport_amount": viewport_amount, "follow_surface_normal": bool(follow_surface_normal), "guide_count": len(guide.data.curves), "evaluated_curve_count": counts["curves"], "evaluated_point_count": counts["points"], "rebuildable": True}
 
 
 def _add_groom_stage(object_name, stage, asset_name, settings, region=None, group_id=None, rebuild=True):
@@ -1008,8 +1011,69 @@ def add_clump(object_name, factor=0.25, shape=0.5, tip_spread=0.0, preserve_leng
     return _add_groom_stage(object_name, "CLUMP", "Clump Hair Curves", {"Factor": float(factor), "Shape": float(shape), "Tip Spread": float(tip_spread), "Preserve Length": bool(preserve_length), "Existing Guide Map": True}, region, group_id, rebuild)
 
 
+def configure_resample_flow(object_name, points_per_meter=24.0, region=None, group_id=None, rebuild=True):
+    obj = _native_object(object_name)
+    if obj.get("hair_mcp_native_kind") != "GENERATED_HAIR":
+        raise ValueError("FLOW resampling requires a GENERATED_HAIR object.")
+    if region is not None and obj.get("hair_mcp_region") != _clean_region(region):
+        raise ValueError("Requested region does not own the target native Hair Curves.")
+    if group_id is not None and obj.get("hair_mcp_group_id") != int(group_id):
+        raise ValueError("Requested group_id does not own the target native Hair Curves.")
+    points_per_meter = float(points_per_meter)
+    if points_per_meter <= 0.0:
+        raise ValueError("points_per_meter must be positive.")
+    modifier, applied = compat.ensure_resample_flow_modifier(
+        obj, "HR Resample for Flow", points_per_meter, rebuild=rebuild
+    )
+    before = compat.curve_counts_at_modifier(obj, modifier, include_modifier=False)
+    after = compat.curve_counts_at_modifier(obj, modifier, include_modifier=True)
+    approximate = after["points"] / after["curves"] if after["curves"] else 0.0
+    _record_stage(obj, "RESAMPLE_FLOW", modifier, applied)
+    _log(
+        f"GROOM_STAGE object={obj.name} stage=RESAMPLE_FLOW "
+        f"before={before['curves']}/{before['points']} after={after['curves']}/{after['points']}"
+    )
+    return {
+        "ok": True, "object": obj.name, "stage": "RESAMPLE_FLOW",
+        "modifier": modifier.name, "node_group": modifier.node_group.name,
+        "settings": applied, "curves_before": before["curves"],
+        "points_before": before["points"], "curves_after": after["curves"],
+        "points_after": after["points"],
+        "approximate_points_per_curve": approximate, "rebuildable": True,
+    }
+
+
 def add_curl(object_name, factor=0.25, radius=0.02, frequency=1.0, curl_start=0.1, seed=0, region=None, group_id=None, rebuild=True):
     return _add_groom_stage(object_name, "CURL", "Curl Hair Curves", {"Factor": float(factor), "Radius": float(radius), "Frequency": float(frequency), "Curl Start": float(curl_start), "Seed": int(seed), "Existing Guide Map": True}, region, group_id, rebuild)
+
+
+def configure_flow(object_name, factor=0.025, root=0.0, upper=0.15, mid=0.55, lower=0.8, tip=0.35, wavelength=0.75, phase=0.0, variation=0.08, asymmetry=0.08, tip_release=0.35, seed=0, preserve_length=True, region=None, group_id=None, rebuild=True):
+    obj = _native_object(object_name)
+    if obj.get("hair_mcp_native_kind") != "GENERATED_HAIR":
+        raise ValueError("FLOW requires a GENERATED_HAIR object.")
+    if region is not None and obj.get("hair_mcp_region") != _clean_region(region):
+        raise ValueError("Requested region does not own the target native Hair Curves.")
+    if group_id is not None and obj.get("hair_mcp_group_id") != int(group_id):
+        raise ValueError("Requested group_id does not own the target native Hair Curves.")
+    values = (root, upper, mid, lower, tip, tip_release)
+    if any(not 0.0 <= float(value) <= 1.0 for value in values):
+        raise ValueError("FLOW root/upper/mid/lower/tip/tip_release must be in [0, 1].")
+    if float(factor) < 0.0 or float(wavelength) <= 0.0 or float(variation) < 0.0:
+        raise ValueError("FLOW factor and variation must be non-negative; wavelength must be positive.")
+    settings = {
+        "Factor": float(factor), "Root": float(root), "Upper": float(upper),
+        "Mid": float(mid), "Lower": float(lower), "Tip": float(tip),
+        "Wavelength": float(wavelength), "Phase": float(phase),
+        "Variation": float(variation), "Asymmetry": float(asymmetry),
+        "Tip Release": float(tip_release), "Seed": int(seed),
+        "Preserve Length": bool(preserve_length),
+    }
+    modifier, applied = compat.ensure_flow_modifier(obj, "HR Flow Hair Curves", settings, rebuild=rebuild)
+    before = compat.curve_counts_at_modifier(obj, modifier, include_modifier=False)
+    after = compat.curve_counts_at_modifier(obj, modifier, include_modifier=True)
+    _record_stage(obj, "FLOW", modifier, applied)
+    _log(f"GROOM_STAGE object={obj.name} stage=FLOW")
+    return {"ok": True, "object": obj.name, "stage": "FLOW", "modifier": modifier.name, "node_group": modifier.node_group.name, "settings": applied, "curves_before": before["curves"], "points_before": before["points"], "curves_after": after["curves"], "points_after": after["points"], "approximate_points_per_curve": (after["points"] / after["curves"] if after["curves"] else 0.0), "rebuildable": True}
 
 
 def add_straighten(object_name, amount=0.25, shape=0.0, preserve_length=True, region=None, group_id=None, rebuild=True):
@@ -1303,6 +1367,9 @@ def execute(command):
     if not action:
         raise ValueError("Missing command.action")
 
+    # Imported lazily to avoid a core <-> styler import cycle at module load.
+    from . import styler
+
     handlers = {
         "init": lambda **_: {"ok": True, "structure": {k: v.name for k, v in ensure_structure().items()}},
         "set_scalp": set_scalp,
@@ -1329,11 +1396,16 @@ def execute(command):
         "delete_part_boundary": delete_part_boundary,
         "configure_interpolation": configure_interpolation,
         "add_clump": add_clump,
+        "configure_resample_flow": configure_resample_flow,
         "add_curl": add_curl,
+        "configure_flow": configure_flow,
         "add_straighten": add_straighten,
         "add_frizz": add_frizz,
         "add_native_smooth": add_native_smooth,
         "add_blend": add_blend,
+        "style_capabilities": lambda **_: styler.capabilities(),
+        "style_plan": styler.plan_style,
+        "style_apply": styler.apply_style,
         "tag_selected": tag_selected,
         "checkpoint": checkpoint,
         "validate": validate_scene,
@@ -1348,11 +1420,11 @@ def execute(command):
         result = handlers[action](**args)
         if isinstance(result, dict):
             result.setdefault("action", action)
-        write_machine_state()
+        # Discovery and planning are strictly read-only. A style dry-run must
+        # not even update Blender Text datablocks.
+        if action not in {"style_capabilities", "style_plan"}:
+            write_machine_state()
         return result
     except Exception as exc:
         _log(f"ERROR action={action}: {exc}")
         return {"ok": False, "action": action, "error": type(exc).__name__, "message": str(exc)}
-
-
-

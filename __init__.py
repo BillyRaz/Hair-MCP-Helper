@@ -15,7 +15,7 @@ bl_info = {
     "category": "3D View",
 }
 
-from . import core, operators, panel
+from . import core, operators, panel, styler
 
 
 def register():
@@ -42,3 +42,23 @@ def snapshot():
 def validate():
     """Return validation report as a JSON-serializable dict."""
     return core.validate_scene()
+
+
+def style_capabilities():
+    return styler.capabilities()
+
+
+def plan_style(profile="RAZ_ARII_HAIR_V1", regions=None, rebuild=True):
+    return styler.plan_style(profile, regions=regions, rebuild=rebuild)
+
+
+def apply_style(profile="RAZ_ARII_HAIR_V1", regions=None, rebuild=True):
+    return styler.apply_style(profile, regions=regions, rebuild=rebuild)
+
+
+def configure_flow(*args, **kwargs):
+    return core.configure_flow(*args, **kwargs)
+
+
+def configure_resample_flow(*args, **kwargs):
+    return core.configure_resample_flow(*args, **kwargs)

@@ -211,9 +211,14 @@ hmh.execute({"action": "configure_interpolation", "args": {
 
 Interpolation creates a separate `GENERATED_HAIR` Curves object; the input
 object remains a `NATIVE_GUIDE`. Region conversion, guide grouping, generic part boundaries, and Blender's
-bundled clump/curl/straighten/frizz/smooth/blend node assets are exposed as
+native clump/flow/curl/straighten/frizz/smooth/blend node processing are exposed as
 separate actions. Interpolation is low-density by default and rebuildable.
 No action automatically creates a final production groom.
+
+`configure_interpolation` exposes `follow_surface_normal` explicitly. Keep it
+`false` for strict, coherent guide following: roots remain distributed on the
+surface while each child preserves the owning guide's direction and shape.
+Enable it only when deliberate surface-normal reorientation is wanted.
 
 Snapshots distinguish `NATIVE_GUIDE` from `GENERATED_HAIR` and report original
 and evaluated curve/point counts, root attachment, ownership, guide-index
@@ -222,6 +227,38 @@ Validation additionally detects unattached native roots, invalid required UVs,
 missing ownership, part/group conflicts, missing interpolation guides, and
 lost source guides when preservation was requested. Generated objects with an
 empty evaluated result report `INTERPOLATION_EMPTY_OUTPUT`.
+
+## Styler V0.3 FLOW resolution
+
+`styler.py` adds a semantic profile/planning layer without replacing Blender's
+Hair Curves algorithms. The built-in `RAZ_ARII_HAIR_V1` profile declares only
+the native interpolation, clump, flow, curl, straighten, smooth, blend, and frizz
+stages needed by each region. V0.3 adds a native, length-aware `resample_flow`
+stage immediately before FLOW. Its `points_per_meter` control supplies enough
+longitudinal samples for broad deformation without editing coordinates in
+Python. Defaults fill parameters for a declared stage;
+an omitted stage is never invented.
+
+FLOW is a rebuildable Geometry Nodes modifier that applies a broad sinusoidal
+offset in the native curve-normal direction through a smooth five-control
+root-to-tip envelope. Deterministic variation keys from `guide_curve_index`,
+keeping strands generated from the same guide coherent. `preserve_length` is
+currently advisory: Blender's native Set Position node does not provide an
+exact curve-length constraint, and strong FLOW values can therefore stretch
+the evaluated curve. Curve-normal/tilt quality also determines side-direction
+stability.
+
+```python
+hmh.style_capabilities()
+hmh.plan_style("RAZ_ARII_HAIR_V1", regions=["FACEFRAME_L", "BACK_MID"])
+hmh.apply_style("RAZ_ARII_HAIR_V1", regions=["FACEFRAME_L"], rebuild=True)
+```
+
+The same entry points are available through `hmh.execute` as
+`style_capabilities`, `style_plan`, and `style_apply`. Planning and discovery
+are read-only, return JSON-serializable resolution details, and report missing
+regions instead of creating or guessing targets. Profile values are initial
+working presets, not final artist-approved ARII values.
 
 ## Deliberate omissions
 

@@ -7,6 +7,8 @@ from mathutils import Vector
 
 
 HAIR_ASSET_FILE = "procedural_hair_node_assets.blend"
+FLOW_NODE_GROUP = "HMH Flow Hair Curves V0.2"
+RESAMPLE_FLOW_NODE_GROUP = "HMH Resample for Flow V0.3"
 SOCKET_ALIASES = {
     "Surface Object": ("Surface",),
     "Use Existing Attachment": ("Sample Attachment UV",),
@@ -90,6 +92,28 @@ def curve_counts(obj, evaluated=False):
     if target.type != "CURVES" or data is None:
         return {"curves": 0, "points": 0}
     return {"curves": len(data.curves), "points": len(data.points)}
+
+
+def curve_counts_at_modifier(obj, modifier, include_modifier=True):
+    """Count evaluated curves/points immediately before or after a modifier."""
+    states = [(item, item.show_viewport, item.show_render) for item in obj.modifiers]
+    try:
+        reached = False
+        for item in obj.modifiers:
+            if item == modifier:
+                reached = True
+                item.show_viewport = bool(include_modifier)
+                item.show_render = bool(include_modifier)
+            elif reached:
+                item.show_viewport = False
+                item.show_render = False
+        bpy.context.view_layer.update()
+        return curve_counts(obj, evaluated=True)
+    finally:
+        for item, viewport, render in states:
+            item.show_viewport = viewport
+            item.show_render = render
+        bpy.context.view_layer.update()
 
 
 def native_curve_points(obj, world=True):
@@ -243,9 +267,235 @@ def ensure_hair_modifier(obj, modifier_name, asset_name, settings, rebuild=True)
     return modifier, applied
 
 
+def _ensure_resample_flow_node_group():
+    """Build a length-aware native Resample Curve graph for deformation detail."""
+    existing = bpy.data.node_groups.get(RESAMPLE_FLOW_NODE_GROUP)
+    if existing:
+        return existing
+
+    group = bpy.data.node_groups.new(RESAMPLE_FLOW_NODE_GROUP, "GeometryNodeTree")
+    try:
+        interface = group.interface
+        interface.new_socket(name="Geometry", in_out='INPUT', socket_type="NodeSocketGeometry")
+        interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type="NodeSocketGeometry")
+        resolution = interface.new_socket(
+            name="Points per Meter", in_out='INPUT', socket_type="NodeSocketFloat"
+        )
+        resolution.default_value = 24.0
+        resolution.min_value = 0.01
+
+        nodes, links = group.nodes, group.links
+        group_in = nodes.new("NodeGroupInput")
+        group_out = nodes.new("NodeGroupOutput")
+        spacing = nodes.new("ShaderNodeMath")
+        spacing.operation = 'DIVIDE'
+        spacing.inputs[0].default_value = 1.0
+        resample = nodes.new("GeometryNodeResampleCurve")
+        # Length mode gives every spline approximately the requested sampling
+        # density without first reducing all curves to one aggregate length.
+        if hasattr(resample, "mode"):
+            resample.mode = 'LENGTH'
+        elif resample.inputs.get("Mode"):
+            resample.inputs["Mode"].default_value = "Length"
+
+        links.new(group_in.outputs["Geometry"], resample.inputs["Curve"])
+        links.new(group_in.outputs["Points per Meter"], spacing.inputs[1])
+        links.new(spacing.outputs[0], resample.inputs["Length"])
+        links.new(resample.outputs["Curve"], group_out.inputs["Geometry"])
+        return group
+    except Exception:
+        bpy.data.node_groups.remove(group)
+        raise
+
+
+def ensure_resample_flow_modifier(obj, modifier_name, points_per_meter, rebuild=True):
+    """Reuse one semantic resample modifier; rebuild means update, not duplicate."""
+    if obj.type != "CURVES":
+        raise TypeError(f"Object '{obj.name}' is not native Hair Curves.")
+    matches = [item for item in obj.modifiers if item.name == modifier_name]
+    modifier = matches[0] if matches else obj.modifiers.new(name=modifier_name, type="NODES")
+    for duplicate in matches[1:]:
+        obj.modifiers.remove(duplicate)
+    modifier.node_group = _ensure_resample_flow_node_group()
+    set_modifier_input(modifier, "Points per Meter", float(points_per_meter))
+    flow = obj.modifiers.get("HR Flow Hair Curves")
+    if flow and obj.modifiers.find(modifier.name) > obj.modifiers.find(flow.name):
+        obj.modifiers.move(obj.modifiers.find(modifier.name), obj.modifiers.find(flow.name))
+    return modifier, {"Points per Meter": float(points_per_meter)}
+
+
+def _flow_math(nodes, operation, first, second=None, name=None):
+    node = nodes.new("ShaderNodeMath")
+    node.operation = operation
+    if name:
+        node.label = name
+    if not hasattr(first, "bl_idname"):
+        node.inputs[0].default_value = float(first)
+    if second is not None and not hasattr(second, "bl_idname"):
+        node.inputs[1].default_value = float(second)
+    return node
+
+
+def _ensure_flow_node_group():
+    """Build the native field graph used by FLOW; called only by real apply."""
+    existing = bpy.data.node_groups.get(FLOW_NODE_GROUP)
+    if existing:
+        return existing
+
+    group = bpy.data.node_groups.new(FLOW_NODE_GROUP, "GeometryNodeTree")
+    try:
+        interface = group.interface
+        interface.new_socket(name="Geometry", in_out='INPUT', socket_type="NodeSocketGeometry")
+        interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type="NodeSocketGeometry")
+        controls = (
+            ("Factor", "NodeSocketFloat", 0.025),
+            ("Root", "NodeSocketFloat", 0.0),
+            ("Upper", "NodeSocketFloat", 0.15),
+            ("Mid", "NodeSocketFloat", 0.55),
+            ("Lower", "NodeSocketFloat", 0.8),
+            ("Tip", "NodeSocketFloat", 0.35),
+            ("Wavelength", "NodeSocketFloat", 0.75),
+            ("Phase", "NodeSocketFloat", 0.0),
+            ("Variation", "NodeSocketFloat", 0.08),
+            ("Asymmetry", "NodeSocketFloat", 0.08),
+            ("Tip Release", "NodeSocketFloat", 0.35),
+            ("Seed", "NodeSocketInt", 0),
+            ("Preserve Length", "NodeSocketBool", True),
+        )
+        for name, socket_type, default in controls:
+            socket = interface.new_socket(name=name, in_out='INPUT', socket_type=socket_type)
+            socket.default_value = default
+
+        nodes, links = group.nodes, group.links
+        group_in = nodes.new("NodeGroupInput")
+        group_out = nodes.new("NodeGroupOutput")
+        set_position = nodes.new("GeometryNodeSetPosition")
+        spline = nodes.new("GeometryNodeSplineParameter")
+        normal = nodes.new("GeometryNodeInputNormal")
+        named_id = nodes.new("GeometryNodeInputNamedAttribute")
+        named_id.data_type = 'INT'
+        named_id.inputs["Name"].default_value = "guide_curve_index"
+        random = nodes.new("FunctionNodeRandomValue")
+        random.data_type = 'FLOAT'
+        random.inputs["Min"].default_value = -1.0
+        random.inputs["Max"].default_value = 1.0
+        links.new(named_id.outputs["Attribute"], random.inputs["ID"])
+        links.new(group_in.outputs["Seed"], random.inputs["Seed"])
+
+        # Smooth five-control envelope. Each smoothstep activates one quarter
+        # of the strand and adds the delta to the preceding control value.
+        envelope = group_in.outputs["Root"]
+        previous = group_in.outputs["Root"]
+        for index, control in enumerate(("Upper", "Mid", "Lower", "Tip")):
+            smooth = nodes.new("ShaderNodeMapRange")
+            smooth.interpolation_type = 'SMOOTHERSTEP'
+            smooth.clamp = True
+            smooth.inputs["From Min"].default_value = index * 0.25
+            smooth.inputs["From Max"].default_value = (index + 1) * 0.25
+            smooth.inputs["To Min"].default_value = 0.0
+            smooth.inputs["To Max"].default_value = 1.0
+            links.new(spline.outputs["Factor"], smooth.inputs["Value"])
+            delta = _flow_math(nodes, 'SUBTRACT', group_in.outputs[control], previous)
+            links.new(group_in.outputs[control], delta.inputs[0])
+            links.new(previous, delta.inputs[1])
+            weighted = _flow_math(nodes, 'MULTIPLY', delta.outputs[0], smooth.outputs["Result"])
+            links.new(delta.outputs[0], weighted.inputs[0])
+            links.new(smooth.outputs["Result"], weighted.inputs[1])
+            add = _flow_math(nodes, 'ADD', envelope, weighted.outputs[0])
+            links.new(envelope, add.inputs[0])
+            links.new(weighted.outputs[0], add.inputs[1])
+            envelope = add.outputs[0]
+            previous = group_in.outputs[control]
+
+        safe_wave = _flow_math(nodes, 'MAXIMUM', group_in.outputs["Wavelength"], 0.001)
+        links.new(group_in.outputs["Wavelength"], safe_wave.inputs[0])
+        angle_scale = _flow_math(nodes, 'DIVIDE', 6.283185307179586, safe_wave.outputs[0])
+        links.new(safe_wave.outputs[0], angle_scale.inputs[1])
+        angle = _flow_math(nodes, 'MULTIPLY', spline.outputs["Factor"], angle_scale.outputs[0])
+        links.new(spline.outputs["Factor"], angle.inputs[0])
+        links.new(angle_scale.outputs[0], angle.inputs[1])
+        varied = _flow_math(nodes, 'MULTIPLY', random.outputs["Value"], group_in.outputs["Variation"])
+        links.new(random.outputs["Value"], varied.inputs[0])
+        links.new(group_in.outputs["Variation"], varied.inputs[1])
+        phase = _flow_math(nodes, 'ADD', group_in.outputs["Phase"], varied.outputs[0])
+        links.new(group_in.outputs["Phase"], phase.inputs[0])
+        links.new(varied.outputs[0], phase.inputs[1])
+        total_angle = _flow_math(nodes, 'ADD', angle.outputs[0], phase.outputs[0])
+        links.new(angle.outputs[0], total_angle.inputs[0])
+        links.new(phase.outputs[0], total_angle.inputs[1])
+        wave = _flow_math(nodes, 'SINE', total_angle.outputs[0])
+        links.new(total_angle.outputs[0], wave.inputs[0])
+
+        squared = _flow_math(nodes, 'MULTIPLY', wave.outputs[0], wave.outputs[0])
+        links.new(wave.outputs[0], squared.inputs[0])
+        links.new(wave.outputs[0], squared.inputs[1])
+        centered = _flow_math(nodes, 'SUBTRACT', squared.outputs[0], 0.5)
+        links.new(squared.outputs[0], centered.inputs[0])
+        asymmetric = _flow_math(nodes, 'MULTIPLY', centered.outputs[0], group_in.outputs["Asymmetry"])
+        links.new(centered.outputs[0], asymmetric.inputs[0])
+        links.new(group_in.outputs["Asymmetry"], asymmetric.inputs[1])
+        shaped_wave = _flow_math(nodes, 'ADD', wave.outputs[0], asymmetric.outputs[0])
+        links.new(wave.outputs[0], shaped_wave.inputs[0])
+        links.new(asymmetric.outputs[0], shaped_wave.inputs[1])
+
+        tip_ramp = nodes.new("ShaderNodeMapRange")
+        tip_ramp.interpolation_type = 'SMOOTHERSTEP'
+        tip_ramp.clamp = True
+        tip_ramp.inputs["From Min"].default_value = 0.8
+        tip_ramp.inputs["From Max"].default_value = 1.0
+        tip_ramp.inputs["To Min"].default_value = 0.0
+        tip_ramp.inputs["To Max"].default_value = 1.0
+        links.new(spline.outputs["Factor"], tip_ramp.inputs["Value"])
+        release_amount = _flow_math(nodes, 'MULTIPLY', tip_ramp.outputs["Result"], group_in.outputs["Tip Release"])
+        links.new(tip_ramp.outputs["Result"], release_amount.inputs[0])
+        links.new(group_in.outputs["Tip Release"], release_amount.inputs[1])
+        release = _flow_math(nodes, 'SUBTRACT', 1.0, release_amount.outputs[0])
+        links.new(release_amount.outputs[0], release.inputs[1])
+
+        amplitude = envelope
+        for value in (group_in.outputs["Factor"], shaped_wave.outputs[0], release.outputs[0]):
+            multiply = _flow_math(nodes, 'MULTIPLY', amplitude, value)
+            links.new(amplitude, multiply.inputs[0])
+            links.new(value, multiply.inputs[1])
+            amplitude = multiply.outputs[0]
+        offset = nodes.new("ShaderNodeVectorMath")
+        offset.operation = 'SCALE'
+        links.new(normal.outputs["Normal"], offset.inputs[0])
+        links.new(amplitude, offset.inputs["Scale"])
+        links.new(group_in.outputs["Geometry"], set_position.inputs["Geometry"])
+        links.new(offset.outputs["Vector"], set_position.inputs["Offset"])
+        links.new(set_position.outputs["Geometry"], group_out.inputs["Geometry"])
+        return group
+    except Exception:
+        bpy.data.node_groups.remove(group)
+        raise
+
+
+def ensure_flow_modifier(obj, modifier_name, settings, rebuild=True):
+    if obj.type != "CURVES":
+        raise TypeError(f"Object '{obj.name}' is not native Hair Curves.")
+    existing = obj.modifiers.get(modifier_name)
+    if existing and rebuild:
+        obj.modifiers.remove(existing)
+        existing = None
+    modifier = existing or obj.modifiers.new(name=modifier_name, type="NODES")
+    modifier.node_group = _ensure_flow_node_group()
+    applied = {}
+    for socket_name, value in settings.items():
+        set_modifier_input(modifier, socket_name, value)
+        applied[socket_name] = value
+    resample = obj.modifiers.get("HR Resample for Flow")
+    if resample:
+        flow_index = obj.modifiers.find(modifier.name)
+        resample_index = obj.modifiers.find(resample.name)
+        if flow_index != resample_index + 1:
+            target = resample_index if flow_index < resample_index else resample_index + 1
+            obj.modifiers.move(flow_index, target)
+    return modifier, applied
+
+
 def remove_native_object(obj):
     data = obj.data
     bpy.data.objects.remove(obj, do_unlink=True)
     if data.users == 0:
         bpy.data.hair_curves.remove(data)
-
