@@ -6,7 +6,7 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 
-from . import compat
+from . import compat, guide_shaper
 
 ROOT_COLLECTION = "HR_HAIR_MCP"
 REGIONS_COLLECTION = "HR_REGIONS"
@@ -688,6 +688,77 @@ def convert_region_to_native(region, new_name=None, keep_source=True, rebuild=Tr
     region = _clean_region(region)
     sources = [obj for obj in _guide_objects(region=region) if obj.type == "CURVE"]
     return _create_native_from_sources(sources, new_name or f"HR_NATIVE_{region}", keep_source, rebuild)
+
+
+def shape_guide(object_name, shaped_name=None, rebuild=True, **controls):
+    """Create/update a non-destructive native Guide Shaper stage."""
+    source = _object(object_name, "GUIDE")
+    if source.get("hair_mcp_guide_shaper"):
+        raise ValueError("Shape the source guide, not an existing shaped-guide stage.")
+    shaped_name = shaped_name or f"{source.name}_SHAPED"
+
+    if source.type == "CURVE":
+        source_curves = [_guide_points(source, "WORLD")]
+    elif source.type == "CURVES" and source.get("hair_mcp_native"):
+        source_curves = compat.native_curve_points(source, world=True)
+    else:
+        raise TypeError("Guide Shaper supports semantic legacy CURVE or native CURVES guides.")
+    if not source_curves or not source_curves[0]:
+        raise ValueError("Guide Shaper source has no readable curves.")
+
+    existing = bpy.data.objects.get(shaped_name)
+    if existing:
+        if not rebuild:
+            raise ValueError(f"Shaped guide already exists: {shaped_name}")
+        if not existing.get("hair_mcp_guide_shaper") or existing.type != "CURVES":
+            raise ValueError(f"Refusing to replace unrelated object: {shaped_name}")
+        compat.remove_native_object(existing)
+
+    shaped = compat.create_native_curves(shaped_name, source_curves)
+    region = source.get("hair_mcp_region")
+    if not region:
+        raise ValueError("Guide Shaper source requires hair_mcp_region metadata.")
+    _link_native_object(shaped, region)
+    for key, value in source.items():
+        if str(key).startswith("hair_mcp"):
+            try:
+                shaped[key] = value
+            except (TypeError, ValueError):
+                pass
+    shaped["hair_mcp"] = True
+    shaped["hair_mcp_role"] = "GUIDE"
+    shaped["hair_mcp_native"] = True
+    shaped["hair_mcp_native_kind"] = "NATIVE_GUIDE"
+    shaped["hair_mcp_derived"] = True
+    shaped["hair_mcp_source_preserved"] = True
+    shaped["hair_mcp_source_guides"] = json.dumps(_source_names(source) if source.type == "CURVES" else [source.name])
+    shaped["hair_mcp_semantic_name"] = shaped_name
+    shaped["hair_mcp_coordinate_space"] = "WORLD"
+
+    if source.type == "CURVES":
+        shaped.data.surface = source.data.surface
+        shaped.data.surface_uv_map = source.data.surface_uv_map
+        group_ids = compat.get_curve_int_attribute(source.data, "hair_mcp_group_id")
+    else:
+        group_id = source.get("hair_mcp_group_id")
+        if group_id is None:
+            raise ValueError("Legacy Guide Shaper source requires hair_mcp_group_id metadata.")
+        group_ids = [int(group_id)]
+    compat.set_curve_int_attribute(shaped.data, "hair_mcp_group_id", group_ids)
+    configure_guide_group(shaped.name, preserve_existing=True)
+
+    normal = None
+    try:
+        _scalp, _hit, normal, _face = _nearest_scalp_hit(source_curves[0][0])
+    except (ValueError, RuntimeError, TypeError):
+        pass
+    result = guide_shaper.configure(
+        shaped, source.name, source_curves[0], surface_normal=normal,
+        rebuild=rebuild, **controls
+    )
+    _record_stage(shaped, "GUIDE_SHAPER", shaped.modifiers[result["modifier"]], result["semantic_controls"])
+    _log(f"GUIDE_SHAPER source={source.name} object={shaped.name} points={result['point_count_after']}")
+    return result
 
 
 def delete_native_hair(object_name):
@@ -1388,6 +1459,7 @@ def execute(command):
         "delete_guide": delete_guide,
         "convert_guide_to_native": convert_guide_to_native,
         "convert_region_to_native": convert_region_to_native,
+        "shape_guide": shape_guide,
         "delete_native_hair": delete_native_hair,
         "configure_guide_group": configure_guide_group,
         "attach_native_to_scalp": attach_native_to_scalp,

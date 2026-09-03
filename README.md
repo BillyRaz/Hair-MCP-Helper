@@ -228,6 +228,38 @@ missing ownership, part/group conflicts, missing interpolation guides, and
 lost source guides when preservation was requested. Generated objects with an
 empty evaluated result report `INTERPOLATION_EMPTY_OUTPUT`.
 
+## Guide Shaper V0.1
+
+`shape_guide` creates a separate native Hair Curves guide and leaves the artist-authored
+source untouched. A rebuild replaces that derived stage, so repeated calls do not stack
+modifiers. Blender's native Resample Curve and Set Position nodes execute the macro shape;
+the same node graph invokes the native Restore Curve Segment Length asset when
+`preserve_length=True`.
+Directional values use a fixed frame derived from the source root tangent and nearest scalp
+normal (`lateral`, `depth`, and optional world-vertical), not curve tilt or point normals.
+
+```python
+hmh.shape_guide(
+    object_name="HR_SIDE_L_GUIDE", point_count=16,
+    root_lock=1.0, root_zone=0.12,
+    lift=0.025, lift_zone=0.20,
+    upper={"lateral": -0.025, "depth": 0.005},
+    mid={"lateral": -0.070, "depth": 0.020},
+    lower={"lateral": -0.035, "depth": 0.035},
+    tip={"lateral": 0.010, "depth": 0.050},
+    fall=0.10, fall_start=0.25,
+    tip_release=0.35, smoothness=0.8, tension=0.45,
+    preserve_length=True, rebuild=True,
+)
+```
+
+V0.1 uses one fixed root frame per shaped object. This is flip-free and predictable for a
+single primary guide; multi-curve native inputs share the first curve's frame. Mirroring is
+deferred. Falloff modes (`smooth`, `soft`, and `sharp`) adjust the lift/fall response while
+retaining smootherstep boundaries. `tension` localizes semantic turns by shaping those
+transitions, and `smoothness` pulls that response toward the neutral smooth curve without
+moving or averaging authored control points.
+
 ## Styler V0.3 FLOW resolution
 
 `styler.py` adds a semantic profile/planning layer without replacing Blender's

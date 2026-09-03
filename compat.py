@@ -9,6 +9,7 @@ from mathutils import Vector
 HAIR_ASSET_FILE = "procedural_hair_node_assets.blend"
 FLOW_NODE_GROUP = "HMH Flow Hair Curves V0.2"
 RESAMPLE_FLOW_NODE_GROUP = "HMH Resample for Flow V0.3"
+GUIDE_SHAPER_NODE_GROUP = "HMH Guide Shaper V0.1"
 SOCKET_ALIASES = {
     "Surface Object": ("Surface",),
     "Use Existing Attachment": ("Sample Attachment UV",),
@@ -322,6 +323,232 @@ def ensure_resample_flow_modifier(obj, modifier_name, points_per_meter, rebuild=
     if flow and obj.modifiers.find(modifier.name) > obj.modifiers.find(flow.name):
         obj.modifiers.move(obj.modifiers.find(modifier.name), obj.modifiers.find(flow.name))
     return modifier, {"Points per Meter": float(points_per_meter)}
+
+
+def _map_smootherstep(nodes, links, value, start, end, label, exponent=None):
+    node = nodes.new("ShaderNodeMapRange")
+    node.label = label
+    node.clamp = True
+    node.interpolation_type = 'SMOOTHERSTEP'
+    node.inputs[1].default_value = float(start)
+    node.inputs[2].default_value = float(end)
+    node.inputs[3].default_value = 0.0
+    node.inputs[4].default_value = 1.0
+    links.new(value, node.inputs[0])
+    if exponent is None:
+        return node.outputs[0]
+    power = nodes.new("ShaderNodeMath")
+    power.operation = 'POWER'
+    power.label = label + " Tension"
+    links.new(node.outputs[0], power.inputs[0])
+    links.new(exponent, power.inputs[1])
+    return power.outputs[0]
+
+
+def _vector_mix(nodes, links, first, second, factor, label):
+    subtract = nodes.new("ShaderNodeVectorMath")
+    subtract.operation = 'SUBTRACT'
+    subtract.label = label
+    links.new(second, subtract.inputs[0])
+    links.new(first, subtract.inputs[1])
+    scale = nodes.new("ShaderNodeVectorMath")
+    scale.operation = 'SCALE'
+    links.new(subtract.outputs[0], scale.inputs[0])
+    links.new(factor, scale.inputs[3])
+    add = nodes.new("ShaderNodeVectorMath")
+    add.operation = 'ADD'
+    links.new(first, add.inputs[0])
+    links.new(scale.outputs[0], add.inputs[1])
+    return add.outputs[0]
+
+
+def _ensure_guide_shaper_node_group():
+    """Native normalized-curve shaper; frame vectors are stable object inputs."""
+    existing = bpy.data.node_groups.get(GUIDE_SHAPER_NODE_GROUP)
+    if existing:
+        return existing
+
+    group = bpy.data.node_groups.new(GUIDE_SHAPER_NODE_GROUP, "GeometryNodeTree")
+    try:
+        interface = group.interface
+        interface.new_socket(name="Geometry", in_out='INPUT', socket_type="NodeSocketGeometry")
+        interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type="NodeSocketGeometry")
+        controls = (
+            ("Point Count", "NodeSocketInt", 16),
+            ("Root Lock", "NodeSocketFloat", 1.0),
+            ("Root Zone", "NodeSocketFloat", 0.12),
+            ("Upper Offset", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Mid Offset", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Lower Offset", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Tip Offset", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Lift Vector", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Lift Zone", "NodeSocketFloat", 0.2),
+            ("Fall Vector", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Fall Start", "NodeSocketFloat", 0.25),
+            ("Tip Direction", "NodeSocketVector", (0.0, 0.0, 0.0)),
+            ("Tip Release", "NodeSocketFloat", 0.0),
+            ("Tip Zone", "NodeSocketFloat", 0.2),
+            ("Envelope Exponent", "NodeSocketFloat", 1.0),
+            ("Lift Exponent", "NodeSocketFloat", 1.0),
+            ("Fall Exponent", "NodeSocketFloat", 1.0),
+            ("Preserve Length", "NodeSocketBool", True),
+        )
+        for name, socket_type, default in controls:
+            socket = interface.new_socket(name=name, in_out='INPUT', socket_type=socket_type)
+            socket.default_value = default
+            if socket_type == "NodeSocketFloat" and name in {
+                "Root Lock", "Root Zone", "Lift Zone", "Fall Start",
+                "Tip Release", "Tip Zone",
+            }:
+                socket.min_value = 0.0
+                socket.max_value = 1.0
+            elif name.endswith("Exponent"):
+                socket.min_value = 0.01
+                socket.max_value = 4.0
+        nodes, links = group.nodes, group.links
+        group_in = nodes.new("NodeGroupInput")
+        group_out = nodes.new("NodeGroupOutput")
+        resample = nodes.new("GeometryNodeResampleCurve")
+        if hasattr(resample, "mode"):
+            resample.mode = 'COUNT'
+        elif resample.inputs.get("Mode"):
+            resample.inputs["Mode"].default_value = "Count"
+        spline = nodes.new("GeometryNodeSplineParameter")
+        capture = nodes.new("GeometryNodeCaptureAttribute")
+        capture.domain = 'POINT'
+        capture.capture_items.new('VECTOR', "Reference Position")
+        position = nodes.new("GeometryNodeInputPosition")
+        set_position = nodes.new("GeometryNodeSetPosition")
+        links.new(group_in.outputs["Geometry"], resample.inputs["Curve"])
+        links.new(group_in.outputs["Point Count"], resample.inputs["Count"])
+        links.new(resample.outputs["Curve"], capture.inputs["Geometry"])
+        links.new(position.outputs["Position"], capture.inputs["Reference Position"])
+
+        factor = spline.outputs["Factor"]
+        # Semantic envelope anchors: calm root, upper, mid, lower, tip.
+        zero = nodes.new("ShaderNodeCombineXYZ").outputs["Vector"]
+        u = _map_smootherstep(nodes, links, factor, 0.0, 0.25, "Root to Upper", group_in.outputs["Envelope Exponent"])
+        envelope = _vector_mix(nodes, links, zero, group_in.outputs["Upper Offset"], u, "Upper")
+        m = _map_smootherstep(nodes, links, factor, 0.25, 0.50, "Upper to Mid", group_in.outputs["Envelope Exponent"])
+        envelope = _vector_mix(nodes, links, envelope, group_in.outputs["Mid Offset"], m, "Mid")
+        lo = _map_smootherstep(nodes, links, factor, 0.50, 0.75, "Mid to Lower", group_in.outputs["Envelope Exponent"])
+        envelope = _vector_mix(nodes, links, envelope, group_in.outputs["Lower Offset"], lo, "Lower")
+        ti = _map_smootherstep(nodes, links, factor, 0.75, 1.0, "Lower to Tip", group_in.outputs["Envelope Exponent"])
+        envelope = _vector_mix(nodes, links, envelope, group_in.outputs["Tip Offset"], ti, "Tip")
+
+        # Root lock is a smooth multiplier, never a hard semantic segment.
+        root_fade = nodes.new("ShaderNodeMapRange")
+        root_fade.clamp = True
+        root_fade.interpolation_type = 'SMOOTHERSTEP'
+        root_fade.inputs[1].default_value = 0.0
+        links.new(factor, root_fade.inputs[0])
+        links.new(group_in.outputs["Root Zone"], root_fade.inputs[2])
+        one_minus_lock = nodes.new("ShaderNodeMath")
+        one_minus_lock.operation = 'SUBTRACT'
+        one_minus_lock.inputs[0].default_value = 1.0
+        links.new(group_in.outputs["Root Lock"], one_minus_lock.inputs[1])
+        lock_mix = nodes.new("ShaderNodeMath")
+        lock_mix.operation = 'MULTIPLY_ADD'
+        links.new(root_fade.outputs[0], lock_mix.inputs[0])
+        links.new(group_in.outputs["Root Lock"], lock_mix.inputs[1])
+        links.new(one_minus_lock.outputs[0], lock_mix.inputs[2])
+        env_scale = nodes.new("ShaderNodeVectorMath")
+        env_scale.operation = 'SCALE'
+        links.new(envelope, env_scale.inputs[0])
+        env_scale.inputs[3].default_value = 1.0
+
+        # Lift is a smooth upper-zone lobe; fall is a progressive gravity ramp.
+        lift_out = nodes.new("ShaderNodeMapRange")
+        lift_out.clamp = True
+        lift_out.interpolation_type = 'SMOOTHERSTEP'
+        lift_out.inputs[1].default_value = 0.0
+        lift_out.inputs[3].default_value = 1.0
+        lift_out.inputs[4].default_value = 0.0
+        links.new(factor, lift_out.inputs[0])
+        links.new(group_in.outputs["Lift Zone"], lift_out.inputs[2])
+        lift_power = nodes.new("ShaderNodeMath")
+        lift_power.operation = 'POWER'
+        links.new(lift_out.outputs[0], lift_power.inputs[0])
+        links.new(group_in.outputs["Lift Exponent"], lift_power.inputs[1])
+        lift_scale = nodes.new("ShaderNodeVectorMath")
+        lift_scale.operation = 'SCALE'
+        links.new(group_in.outputs["Lift Vector"], lift_scale.inputs[0])
+        links.new(lift_power.outputs[0], lift_scale.inputs[3])
+        fall_ramp = nodes.new("ShaderNodeMapRange")
+        fall_ramp.clamp = True
+        fall_ramp.interpolation_type = 'SMOOTHERSTEP'
+        fall_ramp.inputs[2].default_value = 1.0
+        links.new(factor, fall_ramp.inputs[0])
+        links.new(group_in.outputs["Fall Start"], fall_ramp.inputs[1])
+        fall_power = nodes.new("ShaderNodeMath")
+        fall_power.operation = 'POWER'
+        links.new(fall_ramp.outputs[0], fall_power.inputs[0])
+        links.new(group_in.outputs["Fall Exponent"], fall_power.inputs[1])
+        fall_scale = nodes.new("ShaderNodeVectorMath")
+        fall_scale.operation = 'SCALE'
+        links.new(group_in.outputs["Fall Vector"], fall_scale.inputs[0])
+        links.new(fall_power.outputs[0], fall_scale.inputs[3])
+
+        tip_start = nodes.new("ShaderNodeMath")
+        tip_start.operation = 'SUBTRACT'
+        tip_start.inputs[0].default_value = 1.0
+        links.new(group_in.outputs["Tip Zone"], tip_start.inputs[1])
+        tip_ramp = nodes.new("ShaderNodeMapRange")
+        tip_ramp.clamp = True
+        tip_ramp.interpolation_type = 'SMOOTHERSTEP'
+        tip_ramp.inputs[2].default_value = 1.0
+        links.new(factor, tip_ramp.inputs[0])
+        links.new(tip_start.outputs[0], tip_ramp.inputs[1])
+        release_factor = nodes.new("ShaderNodeMath")
+        release_factor.operation = 'MULTIPLY'
+        links.new(tip_ramp.outputs[0], release_factor.inputs[0])
+        links.new(group_in.outputs["Tip Release"], release_factor.inputs[1])
+        tip_scale = nodes.new("ShaderNodeVectorMath")
+        tip_scale.operation = 'SCALE'
+        links.new(group_in.outputs["Tip Direction"], tip_scale.inputs[0])
+        links.new(release_factor.outputs[0], tip_scale.inputs[3])
+
+        add_lift = nodes.new("ShaderNodeVectorMath"); add_lift.operation = 'ADD'
+        add_fall = nodes.new("ShaderNodeVectorMath"); add_fall.operation = 'ADD'
+        add_tip = nodes.new("ShaderNodeVectorMath"); add_tip.operation = 'ADD'
+        links.new(env_scale.outputs[0], add_lift.inputs[0]); links.new(lift_scale.outputs[0], add_lift.inputs[1])
+        links.new(add_lift.outputs[0], add_fall.inputs[0]); links.new(fall_scale.outputs[0], add_fall.inputs[1])
+        links.new(add_fall.outputs[0], add_tip.inputs[0]); links.new(tip_scale.outputs[0], add_tip.inputs[1])
+        final_scale = nodes.new("ShaderNodeVectorMath")
+        final_scale.operation = 'SCALE'
+        links.new(add_tip.outputs[0], final_scale.inputs[0])
+        links.new(lock_mix.outputs[0], final_scale.inputs[3])
+        links.new(capture.outputs["Geometry"], set_position.inputs["Geometry"])
+        links.new(final_scale.outputs[0], set_position.inputs["Offset"])
+
+        restore = nodes.new("GeometryNodeGroup")
+        restore.node_tree = load_hair_node_group("Restore Curve Segment Length")
+        links.new(set_position.outputs["Geometry"], restore.inputs["Curves"])
+        links.new(capture.outputs["Reference Position"], restore.inputs["Reference Position"])
+        links.new(group_in.outputs["Preserve Length"], restore.inputs["Factor"])
+        restore.inputs["Selection"].default_value = True
+        restore.inputs["Pin at Parameter"].default_value = 0.0
+        links.new(restore.outputs["Curves"], group_out.inputs["Geometry"])
+        return group
+    except Exception:
+        bpy.data.node_groups.remove(group)
+        raise
+
+
+def ensure_guide_shaper_modifier(obj, settings, rebuild=True):
+    if obj.type != "CURVES":
+        raise TypeError(f"Object '{obj.name}' is not native Hair Curves.")
+    name = "HR Guide Shaper"
+    matches = [item for item in obj.modifiers if item.name == name]
+    modifier = matches[0] if matches else obj.modifiers.new(name=name, type="NODES")
+    for duplicate in matches[1:]:
+        obj.modifiers.remove(duplicate)
+    modifier.node_group = _ensure_guide_shaper_node_group()
+    applied = {}
+    for socket_name, value in settings.items():
+        set_modifier_input(modifier, socket_name, value)
+        applied[socket_name] = value
+    return modifier, applied
 
 
 def _flow_math(nodes, operation, first, second=None, name=None):

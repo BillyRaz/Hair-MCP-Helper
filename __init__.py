@@ -62,3 +62,7 @@ def configure_flow(*args, **kwargs):
 
 def configure_resample_flow(*args, **kwargs):
     return core.configure_resample_flow(*args, **kwargs)
+
+
+def shape_guide(*args, **kwargs):
+    return core.shape_guide(*args, **kwargs)

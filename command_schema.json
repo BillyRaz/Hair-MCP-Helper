@@ -13,7 +13,7 @@
         "snap_guide_roots", "resample_guide", "smooth_guide",
         "duplicate_guide", "delete_guide", "tag_selected", "checkpoint",
         "validate", "snapshot", "write_state", "save_state",
-        "convert_guide_to_native", "convert_region_to_native", "delete_native_hair",
+        "convert_guide_to_native", "convert_region_to_native", "shape_guide", "delete_native_hair",
         "configure_guide_group", "attach_native_to_scalp", "native_attachment_state",
         "create_part_boundary", "delete_part_boundary", "configure_interpolation",
         "add_clump", "configure_resample_flow", "configure_flow", "add_curl", "add_straighten", "add_frizz",
@@ -32,6 +32,11 @@
       "maxItems": 3
     },
     "points": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/point"}},
+    "zone": {
+      "type": "object",
+      "properties": {"lateral": {"type": "number"}, "depth": {"type": "number"}, "vertical": {"type": "number"}},
+      "additionalProperties": false
+    },
     "space": {"type": "string", "enum": ["WORLD", "LOCAL"]},
     "name": {"type": "string", "minLength": 1},
     "empty": {"type": "object", "maxProperties": 0},
@@ -159,6 +164,23 @@
         "properties": {"object_name": {"$ref": "#/$defs/name"}, "region": {"$ref": "#/$defs/name"}, "new_name": {"$ref": "#/$defs/name"}, "keep_source": {"type": "boolean"}, "rebuild": {"type": "boolean"}},
         "oneOf": [{"required": ["object_name"]}, {"required": ["region"]}],
         "additionalProperties": false
+      }}}
+    },
+    {
+      "if": {"properties": {"action": {"const": "shape_guide"}}},
+      "then": {"required": ["args"], "properties": {"args": {
+        "type": "object", "required": ["object_name"],
+        "properties": {
+          "object_name": {"$ref": "#/$defs/name"}, "shaped_name": {"$ref": "#/$defs/name"},
+          "point_count": {"type": "integer", "minimum": 2}, "preserve_shape": {"type": "boolean"}, "preserve_length": {"type": "boolean"},
+          "root_lock": {"type": "number", "minimum": 0, "maximum": 1}, "root_zone": {"type": "number", "minimum": 0, "maximum": 1},
+          "follow_surface_normal": {"type": "number", "minimum": 0, "maximum": 1},
+          "lift": {"type": "number"}, "lift_zone": {"type": "number", "minimum": 0, "maximum": 1}, "lift_falloff": {"type": "string", "enum": ["smooth", "soft", "sharp"]},
+          "upper": {"$ref": "#/$defs/zone"}, "mid": {"$ref": "#/$defs/zone"}, "lower": {"$ref": "#/$defs/zone"}, "tip": {"$ref": "#/$defs/zone"},
+          "fall": {"type": "number"}, "fall_start": {"type": "number", "minimum": 0, "maximum": 1}, "fall_ramp": {"type": "string", "enum": ["smooth", "soft", "sharp"]},
+          "tip_direction": {"$ref": "#/$defs/zone"}, "tip_release": {"type": "number", "minimum": 0, "maximum": 1}, "tip_zone": {"type": "number", "minimum": 0, "maximum": 1},
+          "smoothness": {"type": "number", "minimum": 0, "maximum": 1}, "tension": {"type": "number", "minimum": 0, "maximum": 1}, "rebuild": {"type": "boolean"}
+        }, "additionalProperties": false
       }}}
     },
     {
