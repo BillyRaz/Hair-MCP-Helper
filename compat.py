@@ -188,12 +188,41 @@ def set_modifier_input(modifier, socket_name, value):
                 break
     if not identifier:
         raise ValueError(f"Node group '{modifier.node_group.name}' has no input '{socket_name}'.")
+
     modern_inputs = getattr(getattr(modifier, "properties", None), "inputs", None)
+
     if modern_inputs is not None:
         item = getattr(modern_inputs, identifier, None)
         if item is not None:
             item.value = value
+
+            # Blender 5.x Geometry Nodes modifier-interface values require
+            # explicit dependency invalidation before evaluated geometry
+            # reliably reflects the new value.
+            node_group = modifier.node_group
+
+            try:
+                node_group.interface_update(bpy.context)
+            except Exception:
+                pass
+
+            try:
+                node_group.update_tag()
+            except Exception:
+                pass
+
+            try:
+                modifier.id_data.update_tag(refresh={'OBJECT', 'DATA', 'TIME'})
+            except Exception:
+                pass
+
+            try:
+                bpy.context.view_layer.update()
+            except Exception:
+                pass
+
             return identifier
+
     modifier[identifier] = value
     return identifier
 

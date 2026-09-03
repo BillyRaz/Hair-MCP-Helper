@@ -196,7 +196,7 @@
       "if": {"properties": {"action": {"const": "configure_interpolation"}}},
       "then": {"required": ["args"], "properties": {"args": {
         "type": "object", "required": ["object_name"],
-        "properties": {"object_name": {"$ref": "#/$defs/name"}, "generated_name": {"$ref": "#/$defs/name"}, "density": {"type": "number", "exclusiveMinimum": 0}, "viewport_amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "interpolation_guides": {"type": "integer", "minimum": 1}, "seed": {"type": "integer"}, "part_by_mesh_islands": {"type": "boolean"}, "rebuild": {"type": "boolean"}}, "additionalProperties": false
+        "properties": {"object_name": {"$ref": "#/$defs/name"}, "generated_name": {"$ref": "#/$defs/name"}, "density": {"type": "number", "exclusiveMinimum": 0}, "viewport_amount": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "interpolation_guides": {"type": "integer", "minimum": 1}, "distance_to_guides": {"type": "number", "exclusiveMinimum": 0}, "seed": {"type": "integer"}, "part_by_mesh_islands": {"type": "boolean"}, "rebuild": {"type": "boolean"}}, "additionalProperties": false
       }}}
     },
     {

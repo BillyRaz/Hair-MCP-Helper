@@ -777,7 +777,7 @@ def _remove_generated_stages_from_guide(obj):
             del obj[key]
 
 
-def configure_interpolation(object_name, generated_name=None, density=10.0, viewport_amount=0.1, interpolation_guides=4, seed=0, part_by_mesh_islands=False, rebuild=True):
+def configure_interpolation(object_name, generated_name=None, density=10.0, viewport_amount=0.1, interpolation_guides=4, distance_to_guides=0.10, seed=0, part_by_mesh_islands=False, rebuild=True):
     guide = _native_object(object_name)
     density = float(density)
     viewport_amount = float(viewport_amount)
@@ -802,7 +802,7 @@ def configure_interpolation(object_name, generated_name=None, density=10.0, view
         if existing.type != "CURVES" or existing.get("hair_mcp_native_kind") != "GENERATED_HAIR":
             raise ValueError(f"Refusing to replace non-generated object: {generated_name}")
         compat.remove_native_object(existing)
-    obj = compat.copy_evaluated_native_curves(generated_name, guide)
+    obj = compat.copy_native_curves(generated_name, guide)
     _link_native_object(obj, guide.get("hair_mcp_region"))
     _tag(obj, role="RENDER", region=guide.get("hair_mcp_region"), group_id=guide.get("hair_mcp_group_id"))
     obj["hair_mcp_coordinate_space"] = "WORLD"
@@ -821,6 +821,7 @@ def configure_interpolation(object_name, generated_name=None, density=10.0, view
         "Resting Surface": True,
         "Part by Mesh Islands": bool(part_by_mesh_islands),
         "Interpolation Guides": int(interpolation_guides),
+        "Distance to Guides": float(distance_to_guides),
         "Density": density,
         "Viewport Amount": viewport_amount,
         "Seed": int(seed),
